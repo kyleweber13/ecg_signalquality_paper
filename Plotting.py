@@ -10,7 +10,8 @@ import scipy.stats
 def generate_smital_region_histogram(df: pd.DataFrame,
                                      thresh: list or tuple = (5, 18),
                                      ignore_nw: bool = True,
-                                     shade_regions: bool = False):
+                                     shade_regions: bool = False,
+                                     xrange: list or tuple or None = None):
     """ Generates colour-coded histogram of Smital SNR quality categories using data in df.
 
         Parameter
@@ -23,11 +24,15 @@ def generate_smital_region_histogram(df: pd.DataFrame,
             if True, ignores rows of data where 'chest_nw_mask' != 0
         shade_regions
             if True, shades vertical bars on graph corresponding to quality categories given by thresh
+        xrange
+            if not None, uses boundaries as histogram bins and x-axis limits
 
         Returns
         -------
         figure
     """
+
+    df = df.copy()
 
     if ignore_nw:
         if 'chest_nw_mask' in df.columns:
@@ -37,30 +42,49 @@ def generate_smital_region_histogram(df: pd.DataFrame,
 
     thresh = sorted(thresh)
 
+    if xrange is not None:
+        xrange = sorted(xrange)
+        bins = np.arange(xrange[0], xrange[1] + 2, 1)
+
+        df.loc[df['snr'] < xrange[0], 'snr'] = xrange[0]
+        df.loc[df['snr'] > xrange[1], 'snr'] = xrange[1] + 1
+
     lq = df.loc[df['snr'] < thresh[0]]
     mq = df.loc[(df['snr'] >= thresh[0]) & (df['snr'] < thresh[1])]
     hq = df.loc[df['snr'] >= thresh[1]]
 
     data_range = [int(np.floor(df['snr'].min())), int(np.ceil(df['snr'].max()))]
-    bins = np.arange(data_range[0], data_range[1], 1)
 
-    fig, ax = plt.subplots(1, figsize=(6, 8))
+    if xrange is None:
+        bins = np.arange(data_range[0], data_range[1], 1)
+
+    fig, ax = plt.subplots(1, figsize=(8, 8))
     lq['snr'].plot.hist(bins=bins, weights=100*np.ones(lq.shape[0])/df.shape[0], ax=ax,
-                        color='red', edgecolor='black', label='Low quality', alpha=.8)
+                        color='red', edgecolor='black', label='Low quality', alpha=1)
     mq['snr'].plot.hist(bins=bins, weights=100*np.ones(mq.shape[0])/df.shape[0], ax=ax,
-                        color='dodgerblue', edgecolor='black', label='Medium quality', alpha=.8)
+                        color='dodgerblue', edgecolor='black', label='Medium quality', alpha=1)
     hq['snr'].plot.hist(bins=bins, weights=100*np.ones(hq.shape[0])/df.shape[0], ax=ax,
-                        color='green', edgecolor='black', label='High quality', alpha=.8)
+                        color='limegreen', edgecolor='black', label='High quality', alpha=1)
 
     if shade_regions:
         ax.axvspan(xmin=ax.get_xlim()[0], xmax=thresh[0], ymin=0, ymax=1, color='red', alpha=.1)
         ax.axvspan(xmin=thresh[0], xmax=thresh[1], ymin=0, ymax=1, color='dodgerblue', alpha=.1)
         ax.axvspan(xmin=thresh[1], xmax=ax.get_xlim()[1], ymin=0, ymax=1, color='limegreen', alpha=.1)
 
+    if xrange is None:
+        ax.set_xlim(data_range)
+    if xrange is not None:
+        ax.set_xlim(xrange[0], xrange[1]+2)
+        xticks = list(ax.get_xticks())[:-2]
+        tick_int = xticks[1] - xticks[0]
+
+        xticks = [str(int(i)) for i in xticks]
+        xticks.append(f">{str(int(int(xticks[-1]) + tick_int))}")
+        ax.set_xticklabels(xticks)
+
     ax.legend()
     ax.set_xlabel("SNR (dB)")
     ax.set_ylabel("Percent of epochs")
-    ax.set_title(f"Bittium non-wear {'not' if not ignore_nw else ''}removed")
     plt.tight_layout()
 
     return fig
@@ -484,12 +508,6 @@ def plot_nw_log(signal, acc_signal, ts, df_nw, df_nw_checked=None, downsample_ra
     ax[-1].xaxis.set_major_formatter(xfmt)
 
 
-def water_window_boxplot(df_water_window, dv_col='snr'):
-
-    df_water_window.boxplot(by='event_label', column=dv_col)
-    plt.ylabel(dv_col)
-
-
 def scatter_snr_by_avm(df, min_datapoints=25, thresholds=(5, 18), use_sem=True):
 
     df_avm = df[['snr', 'wrist_avm_bin', 'ankle_avm_bin', 'chest_avm_bin']]
@@ -792,5 +810,71 @@ def pieplot_snr_categories(df: pd.DataFrame,
     fig, ax = plt.subplots(1, figsize=(6, 6))
     ax.pie(x=vals, colors=['limegreen', 'dodgerblue', 'red'], wedgeprops={"linewidth": 1, 'edgecolor': 'black'},
            labels=fmt_percent(vals))
+
+    return fig
+
+
+def plot_subject_alldata(subj_dict):
+
+    fig, ax = plt.subplots(6, sharex='col', figsize=(12, 9.5), gridspec_kw={'height_ratios': [1, 1, 1, 1, .5, .5]})
+
+    ax[0].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['wrist_avm'], color='dodgerblue', label='1s')
+    ax[0].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['wrist_avm'], color='red', label='5s')
+    ax[0].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['wrist_avm'], color='black', label='900s')
+    ax[0].set_ylabel("Wrist AVM")
+    ax[0].legend(loc='lower right')
+    ax[0].set_ylim(0, )
+
+    ax[1].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['chest_avm'], color='dodgerblue', label='1s')
+    ax[1].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['chest_avm'], color='red', label='5s')
+    ax[1].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['chest_avm'], color='black', label='900s')
+    ax[1].set_ylabel("Chest AVM")
+
+    for row in subj_dict['chest_weber_nw'].itertuples():
+        ax[1].axvspan(xmin=row.start_time, xmax=row.end_time, ymin=0, ymax=1, color='red', alpha=.25)
+        ax[3].axvspan(xmin=row.start_time, xmax=row.end_time, ymin=0, ymax=1, color='red', alpha=.25)
+
+    ax[1].legend(loc='lower right')
+    ax[1].set_ylim(0, )
+
+    ax[2].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['ankle_avm'], color='dodgerblue', label='1s')
+    ax[2].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['ankle_avm'], color='red', label='5s')
+    ax[2].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['ankle_avm'], color='black', label='900s')
+    ax[2].set_ylabel("Ankle AVM")
+    ax[2].legend(loc='lower right')
+    ax[2].set_ylim(0, )
+
+    for ax_i, col in enumerate(['wrist_nw', 'chest_nw', 'ankle_nw']):
+        for row in subj_dict[col].itertuples():
+            ax[ax_i].axvspan(xmin=row.start_time, xmax=row.end_time, color='grey', alpha=.25)
+
+            if ax_i == 1:
+                ax[3].axvspan(xmin=row.start_time, xmax=row.end_time, color='grey', alpha=.25)
+
+    ax[3].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['snr'], color='dodgerblue', label='1s')
+    ax[3].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['snr'], color='red', label='5s')
+    ax[3].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['snr'], color='black', label='900s')
+    ax[3].set_ylabel("SNR")
+    ax[3].legend(loc='lower right')
+
+    ax[4].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['sleep_mask'], color='dodgerblue', label='1s')
+    ax[4].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['sleep_any'], color='red', label='5s')
+    ax[4].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['sleep_any'], color='black', label='900s')
+    ax[4].set_ylabel("Sleep")
+    ax[4].set_yticks([0, 1])
+    ax[4].set_yticklabels(['wake', 'sleep'])
+    ax[4].legend(loc='lower right')
+
+    ax[5].plot(subj_dict['df1s']['start_time'], subj_dict['df1s']['gait_mask'], color='dodgerblue', label='1s')
+    ax[5].plot(subj_dict['epoch_med']['start_time'], subj_dict['epoch_med']['gait_any'], color='red', label='5s')
+    ax[5].plot(subj_dict['epoch_long']['start_time'], subj_dict['epoch_long']['gait_any'], color='black', label='900s')
+    ax[5].set_ylabel("Gait")
+    ax[5].set_yticks([0, 1])
+    ax[5].set_yticklabels(['no', 'gait'])
+    ax[5].legend(loc='lower right')
+
+    ax[-1].xaxis.set_major_formatter(xfmt)
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=.1)
 
     return fig
